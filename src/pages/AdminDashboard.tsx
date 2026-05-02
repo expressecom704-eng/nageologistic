@@ -1,3 +1,4 @@
+// Version 2.0 - Restoring Full Reporting Engine
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
