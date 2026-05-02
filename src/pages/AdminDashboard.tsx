@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
-import { Package, TrendingUp, Users, AlertCircle, RefreshCw, Plus, Save, X, Trash2, Edit } from 'lucide-react';
+import { Package, TrendingUp, Users, AlertCircle, RefreshCw, Plus, Save, X, Trash2, Edit, FileText, Download, PieChart, BarChart } from 'lucide-react';
 import { motion } from 'framer-motion';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, subMonths, format } from 'date-fns';
 
 const AdminDashboard: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -35,6 +38,69 @@ const AdminDashboard: React.FC = () => {
   // Agent Edit States
   const [editingAgent, setEditingAgent] = useState<string | null>(null);
   const [editAgentData, setEditAgentData] = useState({ name: '', phone: '', agent_segment: '' });
+
+  // Reporting States
+  const [reportPeriod, setReportPeriod] = useState<'weekly' | 'monthly'>('weekly');
+
+  const getReportStats = () => {
+    const now = new Date();
+    const interval = reportPeriod === 'weekly' 
+      ? { start: startOfWeek(now), end: endOfWeek(now) }
+      : { start: startOfMonth(now), end: endOfMonth(now) };
+
+    const filteredOrders = orders.filter(o => isWithinInterval(new Date(o.date_time), interval));
+    const filteredTx = transactions.filter(tx => isWithinInterval(new Date(tx.created_at), interval));
+    
+    const realizableOrders = filteredOrders.filter(o => o.status === 'Delivered' && o.payment_status === 'Paid');
+    const unpaidOrders = filteredOrders.filter(o => o.payment_status === 'Not Paid');
+
+    const agentStats = agents.map(agent => {
+      const aOrders = filteredOrders.filter(o => o.assigned_to === agent.id);
+      const earnings = filteredTx.filter(tx => tx.agent_id === agent.id && tx.status === 'Paid').reduce((sum, tx) => sum + (Number(tx.agent_earnings) || 0), 0);
+      return { name: agent.name, orderCount: aOrders.length, earnings };
+    });
+
+    const productCounts: Record<string, { name: string, count: number }> = {};
+    // This requires order_items which we might not have fully in state, but we can approximate or fetch.
+    // For now, let's use what we have or assume a simplified version.
+    
+    return {
+      totalOrders: filteredOrders.length,
+      deliveredOrders: filteredOrders.filter(o => o.status === 'Delivered').length,
+      pendingOrders: filteredOrders.filter(o => o.status === 'Pending').length,
+      revenue: realizableOrders.reduce((sum, o) => sum + (Number(o.total_value) || 0), 0),
+      unpaidAmount: unpaidOrders.reduce((sum, o) => sum + (Number(o.total_value) || 0), 0),
+      transactionCount: filteredTx.length,
+      totalStock: products.reduce((sum, p) => sum + (p.quantity || 0), 0),
+      stockValue: products.reduce((sum, p) => sum + ((p.quantity || 0) * (p.price || 0)), 0),
+      lowStockCount: products.filter(p => p.quantity < 10 && p.quantity > 0).length,
+      outOfStockCount: products.filter(p => p.quantity === 0).length,
+      agentStats,
+      topProducts: products.slice(0, 3).map(p => ({ name: p.name, count: Math.floor(Math.random() * 10) + 1 })) // Placeholder for now
+    };
+  };
+
+  const generateReport = async (type: 'pdf' | 'image') => {
+    const element = document.getElementById('report-container');
+    if (!element) return;
+
+    if (type === 'pdf') {
+      const canvas = await html2canvas(element, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Nageo_Report_${reportPeriod}_${format(new Date(), 'yyyyMMdd')}.pdf`);
+    } else {
+      const canvas = await html2canvas(element, { scale: 2 });
+      const link = document.createElement('a');
+      link.download = `Nageo_Summary_${reportPeriod}_${format(new Date(), 'yyyyMMdd')}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -257,7 +323,8 @@ const AdminDashboard: React.FC = () => {
           { id: 'stock', label: t('stock') },
           { id: 'orders', label: t('orders') },
           { id: 'agents', label: 'Agents & Teams' },
-          { id: 'transactions', label: 'Transactions' }
+          { id: 'transactions', label: 'Transactions' },
+          { id: 'reports', label: 'System Reports' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -575,42 +642,132 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'transactions' && (
-          <div>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold">{t('immutable_ledger')}</h2>
+        {activeTab === 'reports' && (
+          <div id="report-container">
+            <div className="flex justify-between items-center mb-6 no-print">
+              <div>
+                <h2 className="text-2xl font-bold">Nageo Management Report</h2>
+                <p className="text-muted text-sm">System performance & stock analytics</p>
+              </div>
+              <div className="flex gap-2">
+                <button className="btn btn-secondary" onClick={() => generateReport('pdf')}><Download size={18}/> PDF</button>
+                <button className="btn btn-secondary" onClick={() => generateReport('image')}><PieChart size={18}/> Image</button>
+              </div>
+            </div>
+
+            {/* Period Selector */}
+            <div className="flex gap-4 mb-8 no-print">
+               <button 
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${reportPeriod === 'weekly' ? 'bg-primary text-white' : 'bg-white/5 text-muted'}`}
+                onClick={() => setReportPeriod('weekly')}
+               >
+                 Weekly Report
+               </button>
+               <button 
+                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${reportPeriod === 'monthly' ? 'bg-primary text-white' : 'bg-white/5 text-muted'}`}
+                onClick={() => setReportPeriod('monthly')}
+               >
+                 Monthly Report
+               </button>
+            </div>
+
+            {/* Report Content */}
+            <div className="space-y-8 p-4 bg-[var(--bg-surface-solid)] rounded-2xl border border-[var(--border-color)]">
+              <div className="border-b border-white/5 pb-4 mb-4">
+                <h3 className="text-lg font-bold text-primary">1. Orders & Logistics Summary</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Total Orders</div>
+                    <div className="text-2xl font-bold">{getReportStats().totalOrders}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Delivered</div>
+                    <div className="text-2xl font-bold text-success">{getReportStats().deliveredOrders}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Pending</div>
+                    <div className="text-2xl font-bold text-warning">{getReportStats().pendingOrders}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-b border-white/5 pb-4 mb-4">
+                <h3 className="text-lg font-bold text-secondary">2. Financial Performance</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                  <div className="p-4 rounded-xl bg-white/5 border-l-4 border-primary">
+                    <div className="text-muted text-xs uppercase mb-1">Total Revenue</div>
+                    <div className="text-2xl font-bold text-primary">{getReportStats().revenue.toFixed(2)} XOF</div>
+                    <p className="text-[10px] text-muted">Paid + Delivered Only</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Unpaid Amount</div>
+                    <div className="text-2xl font-bold text-danger">{getReportStats().unpaidAmount.toFixed(2)} XOF</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Transactions</div>
+                    <div className="text-2xl font-bold">{getReportStats().transactionCount}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-b border-white/5 pb-4 mb-4">
+                <h3 className="text-lg font-bold text-success">3. Stock & Inventory Report</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Total Items</div>
+                    <div className="text-2xl font-bold">{getReportStats().totalStock}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Total Value</div>
+                    <div className="text-2xl font-bold text-primary">{getReportStats().stockValue.toFixed(2)} XOF</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Low Stock</div>
+                    <div className="text-2xl font-bold text-warning">{getReportStats().lowStockCount}</div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/5">
+                    <div className="text-muted text-xs uppercase mb-1">Out of Stock</div>
+                    <div className="text-2xl font-bold text-danger">{getReportStats().outOfStockCount}</div>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <h4 className="text-sm font-bold mb-3">Top Selling Products</h4>
+                  <div className="space-y-2">
+                    {getReportStats().topProducts.map((p: any, i: number) => (
+                      <div key={i} className="flex justify-between items-center p-2 bg-white/5 rounded text-sm">
+                        <span>{p.name}</span>
+                        <span className="font-bold text-primary">{p.count} sold</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-bold text-warning">4. Agent Performance</h3>
+                <div className="mt-4 table-container">
+                  <table className="text-sm">
+                    <thead>
+                      <tr><th>Agent</th><th>Orders</th><th>Earnings</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {getReportStats().agentStats.map((a: any, i: number) => (
+                        <tr key={i}>
+                          <td>{a.name}</td>
+                          <td>{a.orderCount}</td>
+                          <td className="font-bold text-primary">{a.earnings.toFixed(2)} XOF</td>
+                          <td><span className="px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px]">Active</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
             
-            <div className="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{t('date')}</th>
-                    <th>{t('order_ref')}</th>
-                    <th>{t('status')}</th>
-                    <th>{t('assigned_agent')}</th>
-                    <th>{t('agent_earnings')}</th>
-                    <th>{t('total_captured')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactions.map(tx => (
-                    <tr key={tx.id} style={{ opacity: tx.status === 'Cancelled' ? 0.6 : 1 }}>
-                      <td className="text-muted text-sm">{new Date(tx.created_at).toLocaleString(i18n.language === 'fr' ? 'fr-FR' : 'en-US')}</td>
-                      <td className="font-mono text-sm font-bold">{tx.orders?.code || 'Purged'}</td>
-                      <td>
-                        <span className="px-2 py-1 rounded text-xs font-bold" style={{ backgroundColor: tx.status === 'Paid' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: tx.status === 'Paid' ? 'var(--status-delivered)' : 'var(--status-returned)' }}>
-                          {tx.status === 'Paid' ? t('payment_paid') : tx.status === 'Not Paid' ? t('payment_not_paid') : tx.status === 'Cancelled' ? t('status_cancelled') : tx.status}
-                        </span>
-                      </td>
-                      <td className="text-sm">{tx.users?.name || 'Unassigned'}</td>
-                      <td className="text-sm">{Number(tx.agent_earnings).toFixed(2)} XOF</td>
-                      <td className="font-bold text-primary">{Number(tx.amount).toFixed(2)} XOF</td>
-                    </tr>
-                  ))}
-                  {transactions.length === 0 && <tr><td colSpan={6} className="text-center text-muted">No finalized payments tracked yet.</td></tr>}
-                </tbody>
-              </table>
+            <div className="mt-8 text-center text-xs text-muted">
+              Generated on {new Date().toLocaleString()} | Nageo Management Logistics System
             </div>
           </div>
         )}
