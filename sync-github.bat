@@ -1,32 +1,49 @@
 @echo off
-echo 🚀 SYNCING SYSTEM IMPROVEMENTS TO GITHUB...
+setlocal enabledelayedexpansion
 
-:: 1. Check if Git is installed
+echo 🚀 REPAIRING GITHUB DEPLOYMENT...
+
+:: List of common Git paths on Windows
+set "GIT_PATHS="C:\Program Files\Git\bin\git.exe" "C:\Program Files (x86)\Git\bin\git.exe" "%LocalAppData%\GitHubDesktop\app-*\resources\app\git\mingw64\bin\git.exe""
+
+:: Try to find git
+set "GIT_CMD=git"
 git --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo ❌ ERROR: Git is not installed or not in PATH.
-    echo Please install Git from https://git-scm.com/ and try again.
+    echo 🔍 Git not in PATH, searching common locations...
+    for %%P in (%GIT_PATHS%) do (
+        for /f "delims=" %%G in ('dir /b /s %%P 2^>nul') do (
+            if exist "%%G" (
+                set "GIT_CMD="%%G""
+                goto :found_git
+            )
+        )
+    )
+    echo ❌ ERROR: Could not find git.exe. Please use GitHub Desktop to push your changes.
     pause
     exit /b
 )
 
-:: 2. Add changes
-echo 📝 Staging changes...
-git add .
+:found_git
+echo ✅ Using Git: %GIT_CMD%
 
-:: 3. Commit changes
+:: Staging and forcing the update
+echo 📝 Staging correct local files...
+%GIT_CMD% add .
+
 echo 💾 Committing changes...
-git commit -m "Auto update: system improvements / reporting & stock fixes"
+%GIT_CMD% commit -m "FIX: Restore full system code and reporting engine"
 
-:: 4. Push to main
-echo ☁️ Pushing to GitHub...
-git push origin main
+echo ☁️ Forcing update to GitHub...
+%GIT_CMD% push origin main --force
 
 if %errorlevel% eq 0 (
-    echo ✅ SUCCESS! Your live site will update in a few minutes at:
+    echo ✅ SUCCESS! Your live site is being rebuilt now.
+    echo Please wait 3-5 minutes then refresh:
     echo https://expressecom704-eng.github.io/nageologistic/
 ) else (
-    echo ❌ PUSH FAILED. Please check your internet connection or GitHub permissions.
+    echo ❌ PUSH FAILED. Please check GitHub Desktop for errors.
 )
 
 pause
+
