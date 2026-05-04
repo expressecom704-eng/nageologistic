@@ -1,4 +1,4 @@
-// Version 2.0 - Restoring Full Reporting Engine
+// Version 3.0 - Final Reporting Restoration
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
