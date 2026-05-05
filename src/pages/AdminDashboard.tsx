@@ -1,4 +1,4 @@
-// Version 6.0 - THE REAL FINAL RESTORATION
+// Version 7.0 - THE FINAL FULL RESTORATION
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
@@ -212,6 +212,23 @@ const AdminDashboard: React.FC = () => {
     return groups;
   }, {} as any);
 
+  const handleAssignOrder = async (orderId: string, agentId: string) => {
+    await supabase.from('orders').update({ assigned_to: agentId, status: 'Assigned' }).eq('id', orderId);
+    setAssigningOrder(null);
+  };
+  
+  const handleSaveAgent = async (agentId: string) => {
+    await supabase.from('users').update({ name: editAgentData.name, phone: editAgentData.phone, agent_segment: editAgentData.agent_segment }).eq('id', agentId);
+    setEditingAgent(null);
+  };
+
+  const handleDeleteAgent = async (agentId: string) => {
+    const isConfirmed = confirm("Are you sure you want to delete this agent?");
+    if (isConfirmed) {
+      await supabase.from('users').delete().eq('id', agentId);
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       {unpaidOrders.length > 0 && (
@@ -275,13 +292,13 @@ const AdminDashboard: React.FC = () => {
         {activeTab === 'stock' && (
           <div>
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold">{t('stock')}</h2>
-              <button className="btn btn-primary" onClick={() => setShowAddProduct(!showAddProduct)}>{showAddProduct ? <X size={18} /> : <Plus size={18} />} Add</button>
+              <h2 className="text-xl font-bold">{t('stock')} {stats.lowStock > 0 && <span className="text-danger text-sm ml-2">({stats.lowStock} {t('low_stock')})</span>}</h2>
+              <button className="btn btn-primary" onClick={() => setShowAddProduct(!showAddProduct)}>{showAddProduct ? <X size={18} /> : <Plus size={18} />} Add Product</button>
             </div>
             <div className="table-container">
               <table>
-                <thead><tr><th>Category</th><th>Name</th><th>Quantity</th><th>Price</th></tr></thead>
-                <tbody>{products.map(p => (<tr key={p.id}><td>{p.category}</td><td className="font-medium">{p.name}</td><td>{p.quantity}</td><td>{p.price} XOF</td></tr>))}</tbody>
+                <thead><tr><th>Category</th><th>Name</th><th>Quantity</th><th>Price</th><th>Value</th></tr></thead>
+                <tbody>{products.map(p => (<tr key={p.id}><td>{p.category}</td><td className="font-medium">{p.name}</td><td>{p.quantity}</td><td>{p.price} XOF</td><td>{(p.quantity * p.price).toFixed(2)} XOF</td></tr>))}</tbody>
               </table>
             </div>
           </div>
@@ -291,20 +308,22 @@ const AdminDashboard: React.FC = () => {
           <div>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold">{t('orders')}</h2>
-              <button className="btn btn-primary" onClick={() => setShowAddOrder(!showAddOrder)}>{showAddOrder ? <X size={18} /> : <Plus size={18} />} Manual</button>
+              <button className="btn btn-primary" onClick={() => setShowAddOrder(!showAddOrder)}>{showAddOrder ? <X size={18} /> : <Plus size={18} />} {t('manual_order')}</button>
             </div>
             {Object.keys(groupedOrders).map(date => (
-              <div key={date} className="mb-6">
-                <div className="p-2 bg-white/5 font-bold">{date}</div>
+              <div key={date} className="mb-8">
+                <div className="px-4 py-3 bg-white/5 font-bold border-b border-white/10">{t('orders_for_date', { date })}</div>
                 <div className="table-container">
                   <table>
-                    <thead><tr><th>Code</th><th>Customer</th><th>Status</th><th>Payment</th></tr></thead>
+                    <thead><tr><th>Code</th><th>Customer</th><th>Status</th><th>Payment</th><th>Agent</th><th>Total (XOF)</th></tr></thead>
                     <tbody>{groupedOrders[date].map((o: any) => (
                       <tr key={o.id}>
                         <td>{o.code}</td>
-                        <td>{o.customer_phone}</td>
-                        <td><select value={o.status} onChange={e => handleUpdateStatus(o.id, e.target.value)}><option value="Delivered">Delivered</option><option value="Pending">Pending</option></select></td>
-                        <td><select value={o.payment_status} onChange={e => handleUpdatePayment(o.id, e.target.value)}><option value="Paid">Paid</option><option value="Not Paid">Not Paid</option></select></td>
+                        <td>{o.customer_phone}<br/><span className="text-xs text-muted">📍{o.delivery_location}</span></td>
+                        <td><select className="text-xs font-bold" value={o.status} onChange={e => handleUpdateStatus(o.id, e.target.value)}><option value="Delivered">Delivered</option><option value="Pending">Pending</option><option value="Assigned">Assigned</option></select></td>
+                        <td><select className="text-xs font-bold" value={o.payment_status} onChange={e => handleUpdatePayment(o.id, e.target.value)}><option value="Paid">Paid</option><option value="Not Paid">Not Paid</option></select></td>
+                        <td>{agents.find(a => a.id === o.assigned_to)?.name || 'Unknown'}</td>
+                        <td className="font-bold text-primary">{o.total_value}</td>
                       </tr>
                     ))}</tbody>
                   </table>
@@ -314,29 +333,56 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
+        {activeTab === 'agents' && (
+          <div>
+            <h2 className="text-xl font-bold mb-6">{t('agents_management')}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {agents.map(agent => (
+                <div key={agent.id} className="p-5 rounded-xl border border-[var(--border-color)] bg-white/5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold">{agent.name.charAt(0)}</div>
+                    <div>
+                      <h3 className="font-bold">{agent.name}</h3>
+                      <p className="text-xs text-muted">{agent.phone}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'reports' && (
           <div id="report-container">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">Nageo Report</h2>
+              <div>
+                <h2 className="text-2xl font-bold">Nageo Management Report</h2>
+                <p className="text-muted text-sm">System performance & stock analytics</p>
+              </div>
               <div className="flex gap-2">
-                <button className="btn btn-secondary" onClick={() => generateReport('pdf')}>Download PDF</button>
-                <button className="btn btn-secondary" onClick={() => setReportPeriod(reportPeriod === 'weekly' ? 'monthly' : 'weekly')}>{reportPeriod === 'weekly' ? 'Switch to Monthly' : 'Switch to Weekly'}</button>
+                <button className="btn btn-secondary" onClick={() => generateReport('pdf')}><Download size={18}/> PDF</button>
+                <button className="btn btn-secondary" onClick={() => setReportPeriod(reportPeriod === 'weekly' ? 'monthly' : 'weekly')}>{reportPeriod === 'weekly' ? 'Weekly' : 'Monthly'}</button>
               </div>
             </div>
+
             <div className="space-y-8 p-4 bg-white/5 rounded-2xl border border-white/10">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="p-4 bg-white/5 rounded-xl border-l-4 border-primary">
-                  <div className="text-muted text-xs uppercase">Revenue</div>
+                <div className="p-4 rounded-xl bg-white/5 border-l-4 border-primary">
+                  <div className="text-muted text-xs uppercase mb-1">Total Revenue</div>
                   <div className="text-2xl font-bold text-primary">{getReportStats().revenue.toFixed(2)} XOF</div>
                 </div>
-                <div className="p-4 bg-white/5 rounded-xl border-l-4 border-success">
-                  <div className="text-muted text-xs uppercase">Delivered Orders</div>
+                <div className="p-4 rounded-xl bg-white/5 border-l-4 border-success">
+                  <div className="text-muted text-xs uppercase mb-1">Delivered</div>
                   <div className="text-2xl font-bold text-success">{getReportStats().deliveredOrders}</div>
                 </div>
-                <div className="p-4 bg-white/5 rounded-xl border-l-4 border-danger">
-                  <div className="text-muted text-xs uppercase">Unpaid Amount</div>
+                <div className="p-4 rounded-xl bg-white/5 border-l-4 border-danger">
+                  <div className="text-muted text-xs uppercase mb-1">Unpaid Amount</div>
                   <div className="text-2xl font-bold text-danger">{getReportStats().unpaidAmount.toFixed(2)} XOF</div>
                 </div>
+              </div>
+              
+              <div className="mt-8 text-center text-xs text-muted">
+                Generated on {new Date().toLocaleString()} | Nageo Management
               </div>
             </div>
           </div>
