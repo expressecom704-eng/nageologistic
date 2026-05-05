@@ -1,4 +1,4 @@
-// Version 7.0 - THE FINAL FULL RESTORATION
+// Version 5.0 - ABSOLUTE FINAL RESTORATION
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
@@ -6,7 +6,7 @@ import { Package, TrendingUp, Users, AlertCircle, RefreshCw, Plus, Save, X, Tras
 import { motion } from 'framer-motion';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, subMonths, format } from 'date-fns';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, subMonths, subDays, isSameDay, format } from 'date-fns';
 
 const AdminDashboard: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -57,8 +57,28 @@ const AdminDashboard: React.FC = () => {
 
     const agentStats = agents.map(agent => {
       const aOrders = filteredOrders.filter(o => o.assigned_to === agent.id);
+      const delivered = aOrders.filter(o => o.status === 'Delivered').length;
       const earnings = filteredTx.filter(tx => tx.agent_id === agent.id && tx.status === 'Paid').reduce((sum, tx) => sum + (Number(tx.agent_earnings) || 0), 0);
-      return { name: agent.name, orderCount: aOrders.length, earnings };
+      const successRate = aOrders.length > 0 ? (delivered / aOrders.length) * 100 : 0;
+      return { name: agent.name, orderCount: aOrders.length, delivered, earnings, successRate };
+    });
+
+    // Daily Revenue Trend (Last 7 Days)
+    const dailyTrend = Array.from({ length: 7 }, (_, i) => {
+      const d = subDays(now, i);
+      const dayOrders = orders.filter(o => isSameDay(new Date(o.date_time), d) && o.status === 'Delivered');
+      return {
+        date: format(d, 'MMM dd'),
+        revenue: dayOrders.reduce((sum, o) => sum + (Number(o.total_value) || 0), 0)
+      };
+    }).reverse();
+
+    // Category Distribution
+    const categories = Array.from(new Set(products.map(p => p.category)));
+    const categoryStats = categories.map(cat => {
+      const catProds = products.filter(p => p.category === cat);
+      const value = catProds.reduce((sum, p) => sum + ((p.quantity || 0) * (p.price || 0)), 0);
+      return { name: cat, value };
     });
 
     return {
@@ -73,6 +93,8 @@ const AdminDashboard: React.FC = () => {
       lowStockCount: products.filter(p => p.quantity < 10 && p.quantity > 0).length,
       outOfStockCount: products.filter(p => p.quantity === 0).length,
       agentStats,
+      dailyTrend,
+      categoryStats,
       topProducts: products.slice(0, 3).map(p => ({ name: p.name, count: Math.floor(Math.random() * 10) + 1 }))
     };
   };
@@ -274,17 +296,123 @@ const AdminDashboard: React.FC = () => {
 
       <div className="card w-full">
         {activeTab === 'analytics' && (
-          <div className="py-8">
-            <h2 className="text-xl font-bold mb-6">{t('financial_overview')}</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-               <div className="p-6 rounded-xl border border-[var(--border-color)] bg-white/5">
-                  <h3 className="text-muted mb-4 uppercase text-sm tracking-wider">{t('product_revenue')}</h3>
-                  <div className="text-4xl font-bold text-primary">{stats.revenue.toFixed(2)} XOF</div>
-               </div>
-               <div className="p-6 rounded-xl border border-[var(--border-color)] bg-white/5">
-                  <h3 className="text-muted mb-4 uppercase text-sm tracking-wider">{t('delivery_fees_collected')}</h3>
-                  <div className="text-4xl font-bold text-secondary">{stats.deliveryFees.toFixed(2)} XOF</div>
-               </div>
+          <div className="py-8 space-y-12">
+            <div>
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+                <TrendingUp className="text-primary" /> {t('financial_overview')}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                 <div className="p-6 rounded-xl border border-[var(--border-color)] bg-white/5">
+                    <h3 className="text-muted mb-2 uppercase text-xs tracking-wider">{t('product_revenue')}</h3>
+                    <div className="text-2xl font-bold text-primary">{stats.revenue.toLocaleString()} XOF</div>
+                    <div className="text-xs text-muted mt-1">Value of delivered goods</div>
+                 </div>
+                 <div className="p-6 rounded-xl border border-[var(--border-color)] bg-white/5">
+                    <h3 className="text-muted mb-2 uppercase text-xs tracking-wider">Fees Collected</h3>
+                    <div className="text-2xl font-bold text-secondary">{stats.deliveryFees.toLocaleString()} XOF</div>
+                    <div className="text-xs text-muted mt-1">Total logistics payout</div>
+                 </div>
+                 <div className="p-6 rounded-xl border border-[var(--border-color)] bg-white/5">
+                    <h3 className="text-muted mb-2 uppercase text-xs tracking-wider">Stock Value</h3>
+                    <div className="text-2xl font-bold text-warning">{getReportStats().stockValue.toLocaleString()} XOF</div>
+                    <div className="text-xs text-muted mt-1">Estimated warehouse value</div>
+                 </div>
+                 <div className="p-6 rounded-xl border border-[var(--border-color)] bg-white/5">
+                    <h3 className="text-muted mb-2 uppercase text-xs tracking-wider">Unpaid Pipeline</h3>
+                    <div className="text-2xl font-bold text-danger">{getReportStats().unpaidAmount.toLocaleString()} XOF</div>
+                    <div className="text-xs text-muted mt-1">Orders awaiting payment</div>
+                 </div>
+              </div>
+            </div>
+
+            {/* Revenue Trend Visualization */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2 card p-6">
+                <h3 className="font-bold mb-6 flex items-center gap-2"><BarChart size={18} className="text-primary" /> Revenue Trend (Last 7 Days)</h3>
+                <div className="h-64 w-full flex items-end gap-2 px-2">
+                  {getReportStats().dailyTrend.map((day, idx) => {
+                    const maxRevenue = Math.max(...getReportStats().dailyTrend.map(d => d.revenue)) || 1;
+                    const height = (day.revenue / maxRevenue) * 100;
+                    return (
+                      <div key={idx} className="flex-1 flex flex-col items-center group relative">
+                        <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-primary text-white text-[10px] px-2 py-1 rounded-md font-bold whitespace-nowrap z-10 shadow-lg">
+                          {day.revenue.toLocaleString()} XOF
+                        </div>
+                        <div 
+                          className="w-full bg-primary/20 hover:bg-primary/40 rounded-t-md transition-all duration-500 ease-out flex items-end justify-center relative border-t-2 border-primary"
+                          style={{ height: `${Math.max(height, 5)}%` }}
+                        >
+                          {day.revenue > 0 && <div className="w-1 h-full bg-primary/10 absolute top-0" />}
+                        </div>
+                        <span className="text-[10px] text-muted mt-3 font-medium uppercase tracking-tighter">{day.date}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="card p-6">
+                <h3 className="font-bold mb-6 flex items-center gap-2"><PieChart size={18} className="text-secondary" /> Stock Distribution</h3>
+                <div className="space-y-4">
+                  {getReportStats().categoryStats.map((cat, idx) => {
+                    const totalValue = getReportStats().stockValue || 1;
+                    const percentage = (cat.value / totalValue) * 100;
+                    return (
+                      <div key={idx} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted font-medium uppercase">{cat.name}</span>
+                          <span className="font-bold">{cat.value.toLocaleString()} XOF</span>
+                        </div>
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ width: `${percentage}%` }}
+                            className="h-full bg-secondary"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Agent Performance Table */}
+            <div className="card overflow-hidden">
+              <div className="p-6 border-b border-[var(--border-color)] flex justify-between items-center">
+                <h3 className="font-bold flex items-center gap-2"><Users size={18} className="text-warning" /> Agent Performance Insights</h3>
+              </div>
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Agent Name</th>
+                      <th>Total Orders</th>
+                      <th>Delivered</th>
+                      <th>Success Rate</th>
+                      <th>Total Earnings</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getReportStats().agentStats.map((agent, idx) => (
+                      <tr key={idx}>
+                        <td className="font-bold">{agent.name}</td>
+                        <td>{agent.orderCount}</td>
+                        <td>{agent.delivered}</td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden max-w-[60px]">
+                              <div className="h-full bg-success" style={{ width: `${agent.successRate}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-success">{agent.successRate.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                        <td className="font-bold text-primary">{agent.earnings.toLocaleString()} XOF</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}

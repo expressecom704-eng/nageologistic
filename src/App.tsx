@@ -1,4 +1,4 @@
-// Version 3.0 - Final App Restoration
+// Version 4.0 - FINAL RESTORATION
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useStore } from './store/useStore';
@@ -9,84 +9,66 @@ import AgentDashboard from './pages/AgentDashboard';
 import Layout from './components/Layout';
 
 function App() {
-  const { user, role, setUser, setRole } = useStore();
+  const { user, setUser, loading, setLoading } = useStore();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
       if (session?.user) {
-        fetchRole(session.user.id);
+        fetchUserProfile(session.user.id);
+      } else {
+        setLoading(false);
       }
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        fetchRole(session.user.id);
+        fetchUserProfile(session.user.id);
       } else {
-        setRole(null);
+        setUser(null);
+        setLoading(false);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const [fetchError, setFetchError] = React.useState<string | null>(null);
+  const fetchUserProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-  const fetchRole = async (userId: string, retries = 3) => {
-    // maybeSingle() prevents the "Cannot coerce result" crash and cleanly returns null if 0 rows exist
-    const { data, error } = await supabase.from('users').select('role').eq('id', userId).maybeSingle();
-    
-    if (error) {
-      console.error("fetchRole error:", error);
-      setFetchError(error.message);
-      return;
+    if (!error && data) {
+      setUser(data);
     }
-
-    if (data && data.role) {
-      setRole(data.role);
-    } else if (retries > 0) {
-      // Race Condition Fix: Wait 1 second and retry querying if the Login UI hasn't finished the INSERT yet
-      console.log(`Role not found yet. Retrying in 1s... (${retries} left)`);
-      setTimeout(() => fetchRole(userId, retries - 1), 1000);
-    } else {
-      setFetchError("Profile not synchronized in database. This happens if you missed running the SQL policies or network crashed.");
-    }
+    setLoading(false);
   };
 
-  if (user && !role) {
-    if (fetchError) {
-      return (
-        <div className="flex flex-col justify-center items-center min-h-screen text-danger p-8">
-          <h2 className="text-2xl font-bold mb-4">Database Connection Error</h2>
-          <p className="mb-4">We are authenticated successfully, but cannot fetch your role profile.</p>
-          <div className="bg-black/50 p-4 rounded text-white font-mono">{fetchError}</div>
-          <button className="btn btn-primary mt-6" onClick={() => supabase.auth.signOut()}>Logout</button>
-        </div>
-      );
-    }
-    return <div className="flex justify-center items-center min-h-screen">Loading Profile...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+      </div>
+    );
   }
 
   return (
-    <BrowserRouter basename="/nageologistic/">
+    <BrowserRouter>
       <Routes>
-        <Route 
-          path="/login" 
-          element={!user ? <Login /> : <Navigate to="/" replace />} 
+        <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+        <Route
+          path="/"
+          element={
+            user ? (
+              <Layout>
+                {user.role === 'admin' ? <AdminDashboard /> : <AgentDashboard />}
+              </Layout>
+            ) : (
+              <Navigate to="/login" />
+            )
+          }
         />
-        
-        <Route element={<Layout />}>
-          <Route 
-            path="/" 
-            element={
-              !user ? <Navigate to="/login" replace /> :
-              role === 'admin' ? <AdminDashboard /> : <AgentDashboard />
-            } 
-          />
-        </Route>
       </Routes>
     </BrowserRouter>
   );
