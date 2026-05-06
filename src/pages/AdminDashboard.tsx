@@ -95,7 +95,10 @@ const AdminDashboard: React.FC = () => {
       agentStats,
       dailyTrend,
       categoryStats,
-      topProducts: products.slice(0, 3).map(p => ({ name: p.name, count: Math.floor(Math.random() * 10) + 1 }))
+      topProducts: ((window as any).productPerf || []).map((p: any) => ({ 
+        name: p.products?.name || 'Unknown', 
+        count: p.total_units_sold 
+      }))
     };
   };
 
@@ -152,6 +155,7 @@ const AdminDashboard: React.FC = () => {
     const { data: prodData } = await supabase.from('products').select('*').order('created_at', { ascending: false });
     const { data: orderData } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
     const { data: agentData } = await supabase.from('users').select('*').eq('role', 'agent');
+    const { data: perfData } = await supabase.from('product_performance_stats').select('*, products(name)').order('total_units_sold', { ascending: false }).limit(5);
     
     const { data: txData } = await supabase.from('transactions')
         .select('*, orders(code), users(name)')
@@ -160,6 +164,7 @@ const AdminDashboard: React.FC = () => {
     if (prodData) setProducts(prodData);
     if (agentData) setAgents(agentData);
     if (txData) setTransactions(txData);
+    if (perfData) (window as any).productPerf = perfData; // Temporary store for getReportStats access
     
     if (orderData) {
       setOrders(orderData);
