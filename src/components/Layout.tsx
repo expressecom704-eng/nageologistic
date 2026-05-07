@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
 import { LogOut, Globe, Package, LayoutDashboard } from 'lucide-react';
 
-const Layout = () => {
+const Layout = ({ children }: { children: React.ReactNode }) => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
 
@@ -49,11 +49,14 @@ const Layout = () => {
       {/* Main Content Area */}
       <main className="main-content">
         <header className="flex justify-between items-center mb-8 border-b border-white/5 pb-4">
-          <h1 className="text-2xl font-bold">Nageo Management – Admin Panel</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold">Nageo Management – Admin Panel</h1>
+            <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded-full">v5.1.5-PROD</span>
+          </div>
         </header>
 
         <section>
-          <Outlet />
+          {children}
         </section>
       </main>
     </div>

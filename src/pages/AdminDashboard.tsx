@@ -493,7 +493,10 @@ const AdminDashboard: React.FC = () => {
           <div id="report-container">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-2xl font-bold">Nageo Management Report</h2>
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  Nageo Management Report
+                  <span className="text-xs font-normal opacity-50">v5.1.5</span>
+                </h2>
                 <p className="text-muted text-sm">System performance & stock analytics</p>
               </div>
               <div className="flex gap-2">
