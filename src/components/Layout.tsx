@@ -51,7 +51,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         <header className="flex justify-between items-center mb-8 border-b border-white/5 pb-4">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">Nageo Management – Admin Panel</h1>
-            <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded-full">v5.1.5-PROD</span>
+            <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded-full">v5.1.8-UNIFIED</span>
           </div>
         </header>
 

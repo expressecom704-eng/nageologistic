@@ -495,7 +495,7 @@ const AdminDashboard: React.FC = () => {
               <div>
                 <h2 className="text-2xl font-bold flex items-center gap-2">
                   Nageo Management Report
-                  <span className="text-xs font-normal opacity-50">v5.1.5</span>
+                  <span className="text-xs font-normal opacity-50">v5.1.8-UNIFIED</span>
                 </h2>
                 <p className="text-muted text-sm">System performance & stock analytics</p>
               </div>
