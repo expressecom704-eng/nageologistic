@@ -1,5 +1,5 @@
-// Version 5.0 - ABSOLUTE FINAL RESTORATION
-import React, { useState, useEffect } from 'react';
+// Version 5.2.0 - Deep Analytics & Reporting Fix
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
 import { Package, TrendingUp, Users, AlertCircle, RefreshCw, Plus, Save, X, Trash2, Edit, FileText, Download, PieChart, BarChart } from 'lucide-react';
@@ -42,10 +42,12 @@ const AdminDashboard: React.FC = () => {
 
   // Reporting States
   const [reportPeriod, setReportPeriod] = useState<'weekly' | 'monthly'>('weekly');
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'weekly' | 'monthly'>('weekly');
+  const [productPerf, setProductPerf] = useState<any[]>([]);
 
-  const getReportStats = () => {
+  const reportStats = useMemo(() => {
     const now = new Date();
-    const interval = reportPeriod === 'weekly' 
+    const interval = reportPeriod === 'weekly'
       ? { start: startOfWeek(now), end: endOfWeek(now) }
       : { start: startOfMonth(now), end: endOfMonth(now) };
 
@@ -95,13 +97,12 @@ const AdminDashboard: React.FC = () => {
       agentStats,
       dailyTrend,
       categoryStats,
-      // @ts-ignore
-      topProducts: ((window as any).productPerf || []).map((p: any) => ({ 
-        name: p.products?.name || 'Unknown', 
-        count: p.total_units_sold 
+      topProducts: productPerf.map((p: any) => ({
+        name: p.products?.name || 'Unknown',
+        count: p.total_units_sold
       }))
     };
-  };
+  }, [orders, transactions, products, agents, productPerf, reportPeriod]);
 
   const generateReport = async (type: 'pdf' | 'image') => {
     const element = document.getElementById('report-container');
@@ -156,8 +157,17 @@ const AdminDashboard: React.FC = () => {
     const { data: prodData } = await supabase.from('products').select('*').order('created_at', { ascending: false });
     const { data: orderData } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
     const { data: agentData } = await supabase.from('users').select('*').eq('role', 'agent');
-    // @ts-ignore
-    const { data: perfData } = await supabase.from('product_performance_stats').select('*, products(name)').order('total_units_sold', { ascending: false }).limit(5);
+    let perfData: any[] = [];
+    try {
+      const { data: _perf } = await supabase
+        .from('product_performance_stats')
+        .select('*, products(name)')
+        .order('total_units_sold', { ascending: false })
+        .limit(5);
+      perfData = _perf || [];
+    } catch (_) {
+      perfData = [];
+    }
     
     // @ts-ignore
     const { data: txData } = await supabase.from('transactions')
@@ -167,7 +177,7 @@ const AdminDashboard: React.FC = () => {
     if (prodData) setProducts(prodData);
     if (agentData) setAgents(agentData);
     if (txData) setTransactions(txData);
-    if (perfData) (window as any).productPerf = perfData; // Temporary store for getReportStats access
+    setProductPerf(perfData);
     
     if (orderData) {
       setOrders(orderData);
@@ -490,40 +500,167 @@ const AdminDashboard: React.FC = () => {
         )}
 
         {activeTab === 'reports' && (
-          <div id="report-container">
-            <div className="flex justify-between items-center mb-6">
+          <div id="report-container" className="space-y-8">
+            {/* Header */}
+            <div className="flex flex-wrap justify-between items-center gap-4">
               <div>
-                <h2 className="text-2xl font-bold flex items-center gap-2">
-                  Nageo Management Report
-                  <span className="text-xs font-normal opacity-50">v5.1.8-UNIFIED</span>
-                </h2>
-                <p className="text-muted text-sm">System performance & stock analytics</p>
+                <h1 className="text-2xl font-bold flex items-center gap-3">
+                  <FileText className="text-primary" size={24} />
+                  System Reports
+                  <span className="text-xs font-normal px-2 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded-full">v5.2.0</span>
+                </h1>
+                <p className="text-muted text-sm mt-1">Period: <span className="font-bold text-primary capitalize">{reportPeriod}</span> — generated {new Date().toLocaleString()}</p>
               </div>
-              <div className="flex gap-2">
-                <button className="btn btn-secondary" onClick={() => generateReport('pdf')}><Download size={18}/> PDF</button>
-                <button className="btn btn-secondary" onClick={() => setReportPeriod(reportPeriod === 'weekly' ? 'monthly' : 'weekly')}>{reportPeriod === 'weekly' ? 'Weekly' : 'Monthly'}</button>
+              <div className="flex gap-2 flex-wrap">
+                <button className="btn" style={{background: reportPeriod==='weekly'?'rgba(99,102,241,0.2)':'transparent', color:'var(--color-primary)'}} onClick={() => setReportPeriod('weekly')}>Weekly</button>
+                <button className="btn" style={{background: reportPeriod==='monthly'?'rgba(99,102,241,0.2)':'transparent', color:'var(--color-primary)'}} onClick={() => setReportPeriod('monthly')}>Monthly</button>
+                <button className="btn btn-secondary" onClick={() => generateReport('pdf')}><Download size={16}/> PDF</button>
+                <button className="btn btn-secondary" onClick={() => generateReport('image')}><Download size={16}/> PNG</button>
               </div>
             </div>
 
-            <div className="space-y-8 p-4 bg-white/5 rounded-2xl border border-white/10">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="p-4 rounded-xl bg-white/5 border-l-4 border-primary">
-                  <div className="text-muted text-xs uppercase mb-1">Total Revenue</div>
-                  <div className="text-2xl font-bold text-primary">{getReportStats().revenue.toFixed(2)} XOF</div>
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              {[
+                { label: 'Revenue', value: `${(reportStats?.revenue||0).toLocaleString()} XOF`, color: 'border-primary', textColor: 'text-primary' },
+                { label: 'Orders', value: reportStats?.totalOrders || 0, color: 'border-secondary', textColor: 'text-secondary' },
+                { label: 'Delivered', value: reportStats?.deliveredOrders || 0, color: 'border-success', textColor: 'text-success' },
+                { label: 'Pending', value: reportStats?.pendingOrders || 0, color: 'border-warning', textColor: 'text-warning' },
+                { label: 'Unpaid', value: `${(reportStats?.unpaidAmount||0).toLocaleString()} XOF`, color: 'border-danger', textColor: 'text-danger' },
+              ].map((kpi, i) => (
+                <div key={i} className={`p-4 rounded-xl bg-white/5 border-l-4 ${kpi.color}`}>
+                  <div className="text-muted text-xs uppercase mb-1 tracking-wider">{kpi.label}</div>
+                  <div className={`text-xl font-bold ${kpi.textColor}`}>{kpi.value}</div>
                 </div>
-                <div className="p-4 rounded-xl bg-white/5 border-l-4 border-success">
-                  <div className="text-muted text-xs uppercase mb-1">Delivered</div>
-                  <div className="text-2xl font-bold text-success">{getReportStats().deliveredOrders}</div>
+              ))}
+            </div>
+
+            {/* Revenue Trend Chart */}
+            <div className="card p-6">
+              <h3 className="font-bold mb-4 flex items-center gap-2"><BarChart size={18} className="text-primary" /> Revenue Trend (Last 7 Days)</h3>
+              <div className="h-48 w-full flex items-end gap-2 px-2">
+                {reportStats?.dailyTrend.map((day, idx) => {
+                  const maxR = Math.max(...(reportStats?.dailyTrend.map(d => d.revenue) || [1])) || 1;
+                  const h = (day.revenue / maxR) * 100;
+                  return (
+                    <div key={idx} className="flex-1 flex flex-col items-center group relative">
+                      <div className="absolute -top-8 opacity-0 group-hover:opacity-100 transition-opacity bg-primary text-white text-[10px] px-2 py-1 rounded font-bold whitespace-nowrap z-10">{day.revenue.toLocaleString()} XOF</div>
+                      <div className="w-full rounded-t-md transition-all duration-500 border-t-2 border-primary bg-primary/20 hover:bg-primary/40" style={{ height: `${Math.max(h, 4)}%` }} />
+                      <span className="text-[10px] text-muted mt-2 font-medium">{day.date}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Top Products */}
+              <div className="card overflow-hidden">
+                <div className="p-5 border-b border-[var(--border-color)] flex items-center gap-2">
+                  <PieChart size={18} className="text-secondary" />
+                  <h3 className="font-bold">Top Products</h3>
                 </div>
-                <div className="p-4 rounded-xl bg-white/5 border-l-4 border-danger">
-                  <div className="text-muted text-xs uppercase mb-1">Unpaid Amount</div>
-                  <div className="text-2xl font-bold text-danger">{getReportStats().unpaidAmount.toFixed(2)} XOF</div>
+                {reportStats?.topProducts?.length > 0 ? (
+                  <div className="table-container">
+                    <table>
+                      <thead><tr><th>#</th><th>Product</th><th>Units Sold</th></tr></thead>
+                      <tbody>
+                        {reportStats.topProducts.map((p: any, i: number) => (
+                          <tr key={i}>
+                            <td className="font-bold text-muted">#{i+1}</td>
+                            <td className="font-medium">{p.name}</td>
+                            <td className="font-bold text-primary">{p.count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-muted text-sm">No product performance data available.<br/><span className="text-xs opacity-60">Ensure the product_performance_stats view exists in Supabase.</span></div>
+                )}
+              </div>
+
+              {/* Stock Distribution */}
+              <div className="card p-5">
+                <h3 className="font-bold mb-4 flex items-center gap-2"><PieChart size={18} className="text-warning" /> Stock by Category</h3>
+                <div className="space-y-3">
+                  {reportStats?.categoryStats?.length > 0 ? reportStats.categoryStats.map((cat: any, i: number) => {
+                    const pct = ((cat.value / (reportStats.stockValue || 1)) * 100);
+                    return (
+                      <div key={i} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted font-medium uppercase">{cat.name}</span>
+                          <span className="font-bold">{cat.value.toLocaleString()} XOF ({pct.toFixed(1)}%)</span>
+                        </div>
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                          <motion.div initial={{width:0}} animate={{width:`${pct}%`}} className="h-full bg-warning" />
+                        </div>
+                      </div>
+                    );
+                  }) : <p className="text-muted text-sm text-center py-4">No stock categories found.</p>}
                 </div>
               </div>
-              
-              <div className="mt-8 text-center text-xs text-muted">
-                Generated on {new Date().toLocaleString()} | Nageo Management
+            </div>
+
+            {/* Agent Performance */}
+            <div className="card overflow-hidden">
+              <div className="p-5 border-b border-[var(--border-color)] flex items-center gap-2">
+                <Users size={18} className="text-warning" />
+                <h3 className="font-bold">Agent Performance — {reportPeriod === 'weekly' ? 'This Week' : 'This Month'}</h3>
               </div>
+              {reportStats?.agentStats?.length > 0 ? (
+                <div className="table-container">
+                  <table>
+                    <thead><tr><th>Agent</th><th>Orders</th><th>Delivered</th><th>Success Rate</th><th>Earnings (XOF)</th></tr></thead>
+                    <tbody>
+                      {reportStats.agentStats.map((a: any, i: number) => (
+                        <tr key={i}>
+                          <td className="font-bold">{a.name}</td>
+                          <td>{a.orderCount}</td>
+                          <td>{a.delivered}</td>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden max-w-[60px]">
+                                <div className="h-full bg-success" style={{width:`${a.successRate}%`}} />
+                              </div>
+                              <span className="text-xs font-bold text-success">{a.successRate.toFixed(1)}%</span>
+                            </div>
+                          </td>
+                          <td className="font-bold text-primary">{a.earnings.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <p className="text-muted text-sm text-center py-8">No agent data for this period.</p>}
+            </div>
+
+            {/* Transaction Ledger */}
+            <div className="card overflow-hidden">
+              <div className="p-5 border-b border-[var(--border-color)] flex items-center gap-2">
+                <FileText size={18} className="text-primary" />
+                <h3 className="font-bold">Transaction Ledger</h3>
+                <span className="ml-auto text-xs text-muted">{transactions.length} total records</span>
+              </div>
+              {transactions.length > 0 ? (
+                <div className="table-container">
+                  <table>
+                    <thead><tr><th>Date</th><th>Order</th><th>Agent</th><th>Amount (XOF)</th><th>Agent Earnings</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {transactions.slice(0, 20).map((tx: any, i: number) => (
+                        <tr key={i}>
+                          <td className="text-xs text-muted">{new Date(tx.created_at).toLocaleDateString()}</td>
+                          <td className="font-medium">{tx.orders?.code || tx.order_id?.slice(0,8)}</td>
+                          <td>{tx.users?.name || '—'}</td>
+                          <td className="font-bold text-primary">{Number(tx.amount||0).toLocaleString()}</td>
+                          <td className="text-success">{Number(tx.agent_earnings||0).toLocaleString()}</td>
+                          <td><span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tx.status==='Paid'?'bg-success/10 text-success':'bg-danger/10 text-danger'}`}>{tx.status}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <p className="text-muted text-sm text-center py-8">No transactions recorded yet.</p>}
             </div>
           </div>
         )}
